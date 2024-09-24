@@ -9,6 +9,7 @@ import (
 	"strings"
 )
 
+// Всемогущий класс
 type Student struct {
 	name   string
 	scores []int
