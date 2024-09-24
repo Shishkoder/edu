@@ -28,6 +28,7 @@ func (student *Student) averageScore() float64 {
 	return avg
 }
 
+// ВСЕМОГУЩАЯ ФУНКЦИЯ!
 func main() {
 	file, err := os.Open("students.txt")
 	if err != nil {
