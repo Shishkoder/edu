@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"fmt"
 	"os"
 	"sort"
@@ -9,83 +10,203 @@ import (
 	"strings"
 )
 
-// Всемогущий класс
 type Student struct {
 	name   string
-	scores []int
+	scores map[string][]int // Пример: {"math": [5, 2, 3]}
 }
 
-func (student *Student) addScore(score int) {
-	student.scores = append(student.scores, score)
+func (student *Student) addScore(discipline string, score int) {
+	student.scores[discipline] = append(student.scores[discipline], score)
 }
 
 func (student *Student) averageScore() float64 {
-	sum := 0
-	for _, score := range student.scores {
-		sum += score
+	totalSum := 0.0
+	count := 0
+	for _, scores := range student.scores {
+		// Если оценок нет по дисциплине, то пропускаем
+		if len(scores) == 0 {
+			continue
+		}
+		summa := 0
+		for _, score := range scores {
+			summa += score
+		}
+		avg := float64(summa) / float64(len(scores)) // Средний балл по дисциплине
+		totalSum += avg
+		count++
 	}
-
-	avg := float64(sum) / float64(len(student.scores))
-	return avg
+	// Если дисциплин вообще нет
+	if count == 0 {
+		return 0
+	}
+	return totalSum / float64(count) // Средний балл по всем дисциплинам
 }
 
-// ВСЕМОГУЩАЯ ФУНКЦИЯ!
-func main() {
-	file, err := os.Open("students.txt")
-	if err != nil {
-		fmt.Println("Ошибка при открытии файла:", err)
-		return
-	}
-	defer file.Close()
-
+// Функция для чтения данных из файла или консоли
+func readStudentData(inputFile string) (map[string]*Student, error) {
 	students := make(map[string]*Student)
+	validDisciplines := map[string]bool{
+		"math":    true,
+		"english": true,
+		"physics": true,
+	}
 
-	scanner := bufio.NewScanner(file)
+	var scanner *bufio.Scanner
+	if inputFile != "" {
+		file, err := os.Open(inputFile)
+		if err != nil {
+			return nil, fmt.Errorf("ошибка при открытии файла: %v", err)
+		}
+		defer file.Close()
+		scanner = bufio.NewScanner(file)
+		fmt.Println("Чтение данных из файла:", inputFile)
+	} else {
+		fmt.Println("Введите данные о студентах построчно (имя, дисциплина, оценка). Пустая строка завершает ввод:")
+		scanner = bufio.NewScanner(os.Stdin)
+	}
+
+	// Чтение данных
 	for scanner.Scan() {
 		line := scanner.Text()
+		if line == "" {
+			break
+		}
 		parts := strings.Split(line, " ")
+		if len(parts) < 3 {
+			fmt.Println("Ошибка: строка должна содержать имя, дисциплину и оценку")
+			continue
+		}
 
 		name := parts[0]
+		discipline := parts[1]
+		score, err := strconv.Atoi(parts[2])
+		if err != nil {
+			fmt.Println("Ошибка: оценка должна быть числом")
+			continue
+		}
 
-		// Оценка - это второй элемент (конвертируем из строки в число)
-		score, _ := strconv.Atoi(parts[1])
+		if !validDisciplines[discipline] {
+			fmt.Printf("Ошибка: дисциплина '%s' не поддерживается\n", discipline)
+			continue
+		}
 
-		// Если студент уже существует в мапе, добавляем ему оценку
+		// Добавление студента или обновление существующего
 		if student, exists := students[name]; exists {
-			student.addScore(score)
+			student.addScore(discipline, score)
 		} else {
-			// Если студента ещё нет, создаём нового и добавляем оценку
-			students[name] = &Student{name: name, scores: []int{score}}
+			students[name] = &Student{name: name, scores: make(map[string][]int)}
+			students[name].addScore(discipline, score)
 		}
 	}
 
-	// Преобразуем словарь в список для сортировки
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("ошибка при чтении данных: %v", err)
+	}
+
+	return students, nil
+}
+
+// Вывод данных о студентах (в файл или консоль)
+func writeStudentData(students []*Student, outputFile string) error {
+	var writer *bufio.Writer
+
+	if outputFile != "" {
+		file, err := os.Create(outputFile)
+		if err != nil {
+			return fmt.Errorf("ошибка при создании файла: %v", err)
+		}
+		defer file.Close()
+		writer = bufio.NewWriter(file)
+		fmt.Println("Запись в файл:", outputFile)
+	} else {
+		writer = bufio.NewWriter(os.Stdout)
+	}
+
+	for _, student := range students {
+		var builder strings.Builder
+
+		builder.WriteString(student.name + "\n")
+		builder.WriteString("Scores: \n")
+
+		for discipline, scores := range student.scores {
+			builder.WriteString(fmt.Sprintf("%s: ", discipline))
+
+			for i, score := range scores {
+				if i > 0 {
+					builder.WriteString(", ")
+				}
+				builder.WriteString(fmt.Sprintf("%d", score))
+			}
+			builder.WriteString("\n")
+		}
+
+		builder.WriteString(fmt.Sprintf("Average score: %.2f\n", student.averageScore()))
+		builder.WriteString("\n")
+
+		writer.WriteString(builder.String())
+	}
+
+	return writer.Flush()
+}
+
+// Сортировка студентов по среднему баллу и имени
+func sortStudents(students map[string]*Student) []*Student {
 	var studentList []*Student
 	for _, student := range students {
 		studentList = append(studentList, student)
 	}
 
-	// Сортируем студентов по имени
 	sort.Slice(studentList, func(i, j int) bool {
+		// Если ср. балл разный, то выводим в порядке убывания
+		if studentList[i].averageScore() != studentList[j].averageScore() {
+			// Сортировка по среднему баллу в порядке убывания
+			return studentList[i].averageScore() > studentList[j].averageScore()
+		}
+		// Если ср. балл одинаковый, сортируем по имени в порядке возрастания
 		return studentList[i].name < studentList[j].name
 	})
 
-	// Выводим данные о каждом студенте
-	for _, student := range studentList {
-		fmt.Println(student.name)
+	return studentList
+}
 
-		fmt.Print("Scores: ")
-		for i, score := range student.scores {
-			if i > 0 {
-				fmt.Print(", ")
-			}
-			fmt.Print(score)
-		}
-		fmt.Println()
+func main() {
+	outputFlag := flag.String("o", "", "Output file")
+	outputFlagLong := flag.String("output", "", "Output file")
 
-		fmt.Printf("Average score: %.2f\n", student.averageScore())
+	inputFlag := flag.String("f", "", "Input file")
+	inputFlagLong := flag.String("file", "", "Input file")
 
-		fmt.Println()
+	flag.Parse()
+
+	// Определяем файл для ввода данных
+	inputFile := ""
+	if *inputFlag != "" {
+		inputFile = *inputFlag
+	} else if *inputFlagLong != "" {
+		inputFile = *inputFlagLong
 	}
 
+	// Определяем файл для вывода данных
+	outputFile := ""
+	if *outputFlag != "" {
+		outputFile = *outputFlag
+	} else if *outputFlagLong != "" {
+		outputFile = *outputFlagLong
+	}
+
+	// Чтение данных о студентах
+	students, err := readStudentData(inputFile)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	// Сортировка студентов
+	sortedStudents := sortStudents(students)
+
+	// Вывод данных о студентах
+	err = writeStudentData(sortedStudents, outputFile)
+	if err != nil {
+		fmt.Println(err)
+	}
 }
